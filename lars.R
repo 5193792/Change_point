@@ -14,7 +14,6 @@ my_lars <- function(x,y){
   s <- sign(c[a_index])
   k <- 1
   x_current <- s*x[,a_index]
-  arc.length <- NULL
   cp <- NULL
   while (k<m) {
     g_current <- t(x_current)%*%x_current
@@ -36,7 +35,7 @@ my_lars <- function(x,y){
     a_index <- c(a_index,j)
     c_max <- c_max-eta*A_current
     c <- t(x)%*%(y-miu_hat)
-    s <- c(s,sign(c[j]))
+    s=sign(c[a_index])
     cp[k] <- sum((y-miu_hat)^2)/sigma_estimate-n+2*(k+1)
     k <- k+1
     x_current <- cbind(x_current,s[k]*x[,j])
@@ -59,7 +58,7 @@ w <- cbind(diabetes$x, diabetes$y, diabetes$x2)
 x <- as.matrix(w[, 1:10])
 y <- as.matrix(w[, 11])#响应变量
 x2 <- as.matrix(w[, 12:21])
-laa <- lars(x2, y,type = 'lar') 
+laa <- lars(x2, y,type = 'lasso') 
 plot(laa)
 cva <- cv.lars(x2, y, K = 10, plot.it = TRUE,type = 'lar')
 best <- cva$index[which.min(cva$cv)]           #交叉验证选择最优的解
