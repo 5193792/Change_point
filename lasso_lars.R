@@ -2,24 +2,26 @@ lasso_lars = function(x,y){
   n=length(y)
   m=ncol(x)
   delta=diag(cov(x))
-  x=scale(x)
-  y=scale(y,T,F)
-  beta_ls=solve(t(x)%*%x)%*%t(x)%*%y   
-  sigma_estimate=sum((y-x%*%beta_ls)^2)/(n-m-1)
+  x=scale(x)                  #标准化
+  y=scale(y,T,F)              #中心化
   miu_hat =0                  #当前估计值
-  beta_hat=diag(0,m)      #系数估计值
-  c=t(x)%*%(y-miu_hat)       #相关系数向量
-  c_max=max(abs(c))          #相关系数最大值
-  a_index=which.max(abs(c))  #最先进入模型的变量
-  s =sign(c[a_index]) 
+  beta_hat=diag(0,m)          #系数估计值
+  c=t(x)%*%(y-miu_hat)        #相关系数向量
+  c_max=max(abs(c))           #相关系数最大值
+  a_index=which.max(abs(c))   #最先进入模型的变量
+  s =sign(c[a_index])         #变量与残差向量相关系数的符号
+  sigma_estimate=mean((y-x%*%solve(t(x)%*%x)%*%t(x)%*%y)^2)
   k = 1
   r=1
   x_current = s*x[,a_index]
+  Cp=NULL                     #统计量Cp用于挑选最优参数
+  BIC=NULL                    #BIC准则
   while(k<m+1){
+    ##solution path求解路径
     g_current = t(x_current)%*%x_current
     A_current = 1/drop(sqrt(rep(1,k)%*%solve(g_current)%*%rep(1,k)))
     w_current = A_current*solve(g_current)%*%rep(1,k)
-    u_current = x_current%*%w_current
+    u_current = x_current%*%w_current  
     a = drop(t(x)%*%u_current)
     ##计算下一个变量进入模型所需步长
     if(k<m){
@@ -35,7 +37,7 @@ lasso_lars = function(x,y){
     }else{
       eta_hat= max(abs(c))/A_current
     }
-    ##计算eta_tilde，用于判断变量是否经过零点
+    ##计算eta_tilde，用于判断变量的系数是否经过零点
     if(r>1){
       d=s*w_current
       gamma=-beta_hat[a_index,r-1]/d
@@ -50,7 +52,11 @@ lasso_lars = function(x,y){
       beta_hat[a_index,r]=solve(t(x[,a_index])%*%x[,a_index])%*%t(x[,a_index])%*%miu_hat
       a_index=c(a_index,j)
       c_max=c_max-eta_hat*A_current
-      c=t(x)%*%(y-miu_hat)
+      error=y-miu_hat
+      sse=sum(error^2)
+      Cp[r]=sse/sigma_estimate-n+2*k
+      BIC[r]=n*log(sse/n)+k*log(n)/2
+      c=t(x)%*%error
       s=sign(c[a_index])
       k=k+1
       x_current=cbind(x_current,s[k]*x[,j])
@@ -60,42 +66,72 @@ lasso_lars = function(x,y){
       beta_hat=cbind(beta_hat,0,0)
       a_index=a_index[-j_tilde]
       c_max=c_max-eta_tilde*A_current
-      c=t(x)%*%(y-miu_hat)
+      error=y-miu_hat
+      sse=sum(error^2)
+      Cp[r]=sse/sigma_estimate-n+2*k
+      BIC[r]=n*log(sse/n)+k*log(n)/2
+      c=t(x)%*%error
       s=sign(c[a_index])
       k=k-1
       x_current=x_current[,-j_tilde]
     }
     r=r+1
   }
-  beta_hat <- apply(beta_hat,2,function(x){x/sqrt(delta)})
-  sum_abs_beta <- colSums(abs(beta_hat))
-  gamr <- sum_abs_beta/max(sum_abs_beta)
-  return(list(beta_hat=beta_hat,gamr=gamr))
+  beta_hat=apply(beta_hat,2,function(x){x/sqrt(delta)})
+  sum_abs_beta=colSums(abs(beta_hat))
+  lambda=sum_abs_beta/max(sum_abs_beta)
+  return(list(beta_hat=beta_hat,lambda=lambda,Cp=Cp))
 }
 
-
-
-
-
-
-
-
 #例子
-library(lars)
-library(ggplot2)
-library(reshape2)
-data(diabetes)
-attach(diabetes)
-w <- cbind(diabetes$x, diabetes$y, diabetes$x2)
-y <- as.matrix(w[, 11])#响应变量
-x <- as.matrix(w[, 12:21])
-laa <- lars(x, y,type = 'lasso') 
-plot(laa)
+library(tidyverse)
 
-#自己写的函数my_lars得到的解
-coef1 <- lasso(x,y)[[1]]
-#系数轨迹图
-gamr <- lasso(x,y)[[2]]
-a <- as.data.frame(cbind(coef1,y= 1:ncol(x)))
-a1 <- melt(a,id.vars = 'y')
-ggplot(a1,aes(rep(gamr,each=10),value,group=y))+geom_line(aes(col=y))
+##生成数据
+t_j=c(20.1,35.1,58.1,80.2,130.2,150.1,162.1,176.1)
+h_j=c(4,-2,-4,2.5,4.3,-3.1,2.1,-4.2)
+n=200
+t=1:n
+f_real=NULL
+for(i in 1:n){
+  f_real[i]=h_j%*%(1+sign(t[i]-t_j))/2
+}
+f_t=tibble(t,f_t=f_real)
+f_t_1=tibble(t,f_t=f_real+rnorm(n,sd=0.2))  
+f_t_2=tibble(t,f_t=f_real+rnorm(n,sd=0.5))
+f_t_3=tibble(t,f_t=f_real+rnorm(n,sd=0.7))
+##时序图
+ggplot(f_t,aes(t,f_t))+geom_line()+theme(axis.title=element_blank())
+ggplot(f_t_1,aes(t,f_t))+geom_line()+theme(axis.title=element_blank())
+ggplot(f_t_2,aes(t,f_t))+geom_line()+theme(axis.title=element_blank())
+ggplot(f_t_3,aes(t,f_t))+geom_line()+theme(axis.title=element_blank())
+
+##变点探测
+###生成下三角矩阵X
+X=diag(n)
+X[lower.tri(X)]=1
+###方差为0.2时
+l_1=lasso_lars(X[,-1],f_t_1$f_t)
+##选择Cp最小时的估计值
+beta_h_1=l_1$beta_hat[,which.min(l_1$Cp)]
+change_ponts_1=which(abs(beta_h_1)>.4)
+ggplot(f_t_1,aes(t,f_t))+geom_line()+
+  theme(axis.title=element_blank())+
+  geom_vline(xintercept = change_ponts_1)
+
+###方差为0.5时
+l_2=lasso_lars(X[,-1],f_t_2$f_t)
+##选择Cp最小时的估计值
+beta_h_2=l_2$beta_hat[,which.min(l_2$Cp)]
+change_ponts_2=which(abs(beta_h_2)>0.4)
+ggplot(f_t_2,aes(t,f_t))+geom_line()+
+  theme(axis.title=element_blank())+
+  geom_vline(xintercept = change_ponts_2)
+
+###方差为0.7时
+l_3=lasso_lars(X[,-1],f_t_3$f_t)
+##选择Cp最小时的估计值
+beta_h_3=l_3$beta_hat[,which.min(l_3$Cp)]
+change_ponts_3=which(abs(beta_h_3)>0.4)
+ggplot(f_t_3,aes(t,f_t))+geom_line()+
+  theme(axis.title=element_blank())+
+  geom_vline(xintercept = change_ponts_3)
