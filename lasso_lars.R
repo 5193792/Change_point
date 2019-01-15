@@ -83,6 +83,42 @@ lasso_lars = function(x,y){
   return(list(beta_hat=beta_hat,lambda=lambda,Cp=Cp))
 }
 
+##交叉验证，默认10折交叉验证
+cross_validation=function(x,y,k=10){
+  n=nrow(x)
+  r=sample(n,n)
+  size=floor(n/k)
+  lambda=seq(0,1,length=100)[-1]
+  sse=matrix(nrow=k,ncol=99)
+  for(i in 1:k){
+    index=r[((i-1)*size+1):(i*size)]
+    test_set_x=x[index,]
+    test_set_y=y[index]
+    train_set_x=x[-index,]
+    train_set_y=y[-index]
+    l=lasso_lars(train_set_x,train_set_y)
+    train_beta=l$beta_hat
+    train_lambda=l$lambda
+    t=1
+    for(j in 1:99){
+      lambda_temp=lambda[j]
+      while(lambda_temp>train_lambda[t]){
+        t=t+1
+      }
+      if(t==1){
+        beta_temp = train_beta[,t]*lambda_temp/train_lambda[t]
+        sse[i,j]=mean((test_set_y - test_set_x%*%beta_temp)^2)
+      }else{
+        beta_temp = train_beta[,t-1]+
+          (train_beta[,t]-train_beta[,t-1])*(lambda_temp-train_lambda[t-1])/(train_lambda[t]-train_lambda[t-1])
+        sse[i,j]=mean((test_set_y - test_set_x%*%beta_temp)^2)
+      }
+    }
+  }
+  mse=colMeans(sse)  ##计算预测军方误差
+  return(mse)
+}
+
 #例子
 library(tidyverse)
 
